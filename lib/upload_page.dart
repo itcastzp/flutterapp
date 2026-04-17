@@ -25,6 +25,7 @@ class _UploadPageState extends State<UploadPage> {
   bool _isVideo = false;
   double _progress = 0;
   bool _uploading = false;
+  bool _useMultipart = true;
   String _status = '请先选择图片或视频';
   String? _uploadedObjectKey;
   String _debugInfo = '';
@@ -70,33 +71,55 @@ class _UploadPageState extends State<UploadPage> {
 
     setState(() {
       _uploading = true;
-      _status = '正在请求上传凭证...';
+      _status = '正在准备上传...';
     });
 
     try {
-      _appendDebug('开始请求预签名: ${_service.apiBaseUrl}/api/upload/presign');
-      final presign = await _service.requestPresign(file);
-      _appendDebug('预签名成功: bucket=${presign.bucket}, objectKey=${presign.objectKey}');
-      _appendDebug('uploadUrl: ${presign.uploadUrl}');
-      setState(() {
-        _status = '上传中...';
-      });
+      if (_useMultipart) {
+        _appendDebug('开始分片上传请求: ${_service.apiBaseUrl}/api/upload/multipart/init');
+        setState(() {
+          _status = '分片上传中...';
+        });
 
-      await _service.uploadByPresignedUrl(
-        file: file,
-        presign: presign,
-        onProgress: (value) {
-          setState(() {
-            _progress = value;
-          });
-        },
-      );
+        final objKey = await _service.uploadMultipart(
+          file: file,
+          onProgress: (value) {
+            setState(() {
+              _progress = value;
+            });
+          },
+        );
 
-      setState(() {
-        _uploadedObjectKey = '${presign.bucket}/${presign.objectKey}';
-        _status = '上传成功';
-      });
-      _appendDebug('上传完成: $_uploadedObjectKey');
+        setState(() {
+          _uploadedObjectKey = objKey;
+          _status = '分片上传成功';
+        });
+        _appendDebug('分片上传完成: $_uploadedObjectKey');
+      } else {
+        _appendDebug('开始请求预签名: ${_service.apiBaseUrl}/api/upload/presign');
+        final presign = await _service.requestPresign(file);
+        _appendDebug('预签名成功: bucket=${presign.bucket}, objectKey=${presign.objectKey}');
+        _appendDebug('uploadUrl: ${presign.uploadUrl}');
+        setState(() {
+          _status = '直传上传中...';
+        });
+
+        await _service.uploadByPresignedUrl(
+          file: file,
+          presign: presign,
+          onProgress: (value) {
+            setState(() {
+              _progress = value;
+            });
+          },
+        );
+
+        setState(() {
+          _uploadedObjectKey = '${presign.bucket}/${presign.objectKey}';
+          _status = '直传上传成功';
+        });
+        _appendDebug('直传上传完成: $_uploadedObjectKey');
+      }
     } catch (e) {
       setState(() {
         _status = '上传失败: ${_formatError(e)}';
@@ -177,6 +200,20 @@ class _UploadPageState extends State<UploadPage> {
               ),
               const SizedBox(height: 12),
             ],
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('使用分片上传'),
+              subtitle: const Text('对于大文件，将按照后端分配的块大小并发传输'),
+              value: _useMultipart,
+              onChanged: _uploading
+                  ? null
+                  : (val) {
+                      setState(() {
+                        _useMultipart = val;
+                      });
+                    },
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
