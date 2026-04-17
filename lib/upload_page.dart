@@ -41,7 +41,8 @@ class _UploadPageState extends State<UploadPage> {
     if (error is DioException) {
       final uri = error.requestOptions.uri.toString();
       final code = error.response?.statusCode;
-      return 'DioException(type: ${error.type}, code: $code, uri: $uri, message: ${error.message})';
+      final data = error.response?.data;
+      return 'Http Error [$code] at $uri\nDetail: $data\nMsg: ${error.message}';
     }
     return error.toString();
   }
@@ -88,6 +89,7 @@ class _UploadPageState extends State<UploadPage> {
               _progress = value;
             });
           },
+          onLog: _appendDebug,
         );
 
         setState(() {

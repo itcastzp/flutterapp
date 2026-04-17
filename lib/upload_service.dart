@@ -196,11 +196,14 @@ class UploadService {
     required File file,
     int maxConcurrent = 3,
     required void Function(double progress) onProgress,
+    void Function(String message)? onLog,
   }) async {
+    onLog?.call('正在初始化分片上传...');
     final initRes = await initMultipartUpload(file);
     final totalSize = await file.length();
 
     if (!initRes.useMultipart) {
+      onLog?.call('文件较小 (size: $totalSize)，服务端建议开启降级直传');
       // 降级为普通长连接上传
       final presign = await requestPresign(file);
       await uploadByPresignedUrl(
@@ -211,10 +214,12 @@ class UploadService {
       return '${presign.bucket}/${presign.objectKey}';
     }
 
+    onLog?.call('已开启分片模式: uploadId=${initRes.uploadId}, objectKey=${initRes.objectKey}');
     final partSize = initRes.partSizeBytes;
     final totalParts = (totalSize / partSize).ceil();
-    final parts = <MultipartPart>[];
+    onLog?.call('文件大小: $totalSize, 分片大小: $partSize, 总片数: $totalParts');
     
+    final parts = <MultipartPart>[];
     final partChunks = List.generate(totalParts, (index) => index + 1);
     final sentBytesPerPart = <int, int>{};
 
@@ -225,12 +230,16 @@ class UploadService {
             i, i + maxConcurrent > partChunks.length ? partChunks.length : i + maxConcurrent));
       }
 
-      for (final batch in batches) {
+      for (var batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+        final batch = batches[batchIdx];
+        onLog?.call('正在处理第 ${batchIdx + 1}/${batches.length} 批次分片: $batch');
+        
         final batchFutures = batch.map((partNum) async {
           final offset = (partNum - 1) * partSize;
           final end = (offset + partSize > totalSize) ? totalSize : offset + partSize;
           final length = end - offset;
 
+          onLog?.call('正在获取分片 $partNum 的签名 URL...');
           final uploadUrl = await signMultipartPart(
             uploadId: initRes.uploadId,
             objectKey: initRes.objectKey,
@@ -239,6 +248,7 @@ class UploadService {
 
           final stream = file.openRead(offset, end);
 
+          onLog?.call('正在上传分片 $partNum (大小: $length)...');
           final putResponse = await _dio.put<void>(
             uploadUrl,
             data: stream,
@@ -258,6 +268,7 @@ class UploadService {
           if (etag.isEmpty) {
             throw Exception('Upload part $partNum failed: no etag');
           }
+          onLog?.call('分片 $partNum 上传完成, etag=$etag');
 
           return MultipartPart(partNumber: partNum, etag: etag);
         });
@@ -266,18 +277,19 @@ class UploadService {
         parts.addAll(results);
       }
 
-      parts.sort((a, b) => a.partNumber.compareTo(b.partNumber));
-
+      onLog?.call('所有分片上传完毕，正在通知后端合并 ($totalParts parts)...');
       await completeMultipartUpload(
         uploadId: initRes.uploadId,
         objectKey: initRes.objectKey,
         parts: parts,
       );
       
+      onLog?.call('后端合并成功！');
       // 保证最终进度为 1.0
       onProgress(1.0);
       return initRes.objectKey;
     } catch (e) {
+      onLog?.call('分片上传异常，正在尝试中止 (Abort): $e');
       await abortMultipartUpload(
         uploadId: initRes.uploadId,
         objectKey: initRes.objectKey,
