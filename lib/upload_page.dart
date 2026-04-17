@@ -22,9 +22,10 @@ class _UploadPageState extends State<UploadPage> {
   final _picker = ImagePicker();
 
   File? _pickedFile;
+  bool _isVideo = false;
   double _progress = 0;
   bool _uploading = false;
-  String _status = '请先选择图片';
+  String _status = '请先选择图片或视频';
   String? _uploadedObjectKey;
   String _debugInfo = '';
 
@@ -44,21 +45,26 @@ class _UploadPageState extends State<UploadPage> {
     return error.toString();
   }
 
-  Future<void> _pickImage() async {
-    final xFile = await _picker.pickImage(source: ImageSource.gallery);
+  Future<void> _pickMedia() async {
+    final xFile = await _picker.pickMedia();
     if (xFile == null) return;
+    final lowerPath = xFile.path.toLowerCase();
+    final isVideo = lowerPath.endsWith('.mp4') ||
+        lowerPath.endsWith('.mov') ||
+        lowerPath.endsWith('.m4v');
     setState(() {
       _pickedFile = File(xFile.path);
+      _isVideo = isVideo;
       _progress = 0;
       _uploadedObjectKey = null;
-      _status = '已选择: ${xFile.name}';
+      _status = '已选择${isVideo ? "视频" : "图片"}: ${xFile.name}';
       _debugInfo = '';
     });
     _appendDebug('API Base URL: ${_service.apiBaseUrl}');
     _appendDebug('已选择文件: ${xFile.path}');
   }
 
-  Future<void> _uploadImage() async {
+  Future<void> _uploadFile() async {
     final file = _pickedFile;
     if (file == null || _uploading) return;
 
@@ -105,9 +111,9 @@ class _UploadPageState extends State<UploadPage> {
 
   @override
   Widget build(BuildContext context) {
-    final imageFile = _pickedFile;
+    final pickedFile = _pickedFile;
     return Scaffold(
-      appBar: AppBar(title: const Text('MinIO 图片上传 MVP')),
+      appBar: AppBar(title: const Text('MinIO 文件上传 MVP')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -119,12 +125,26 @@ class _UploadPageState extends State<UploadPage> {
                   border: Border.all(color: Colors.grey.shade300),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: imageFile == null
-                    ? const Center(child: Text('未选择图片'))
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(imageFile, fit: BoxFit.cover),
-                      ),
+                child: pickedFile == null
+                    ? const Center(child: Text('未选择文件'))
+                    : _isVideo
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.videocam, size: 56),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '视频文件: ${pickedFile.path.split(Platform.pathSeparator).last}',
+                                  textAlign: TextAlign.center,
+                                )
+                              ],
+                            ),
+                          )
+                        : ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(pickedFile, fit: BoxFit.cover),
+                          ),
               ),
             ),
             const SizedBox(height: 16),
@@ -161,14 +181,14 @@ class _UploadPageState extends State<UploadPage> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: _uploading ? null : _pickImage,
-                    child: const Text('选择图片'),
+                    onPressed: _uploading ? null : _pickMedia,
+                    child: const Text('选择图片/视频'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: FilledButton(
-                    onPressed: (_pickedFile == null || _uploading) ? null : _uploadImage,
+                    onPressed: (_pickedFile == null || _uploading) ? null : _uploadFile,
                     child: const Text('上传到 MinIO'),
                   ),
                 ),

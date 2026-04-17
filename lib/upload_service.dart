@@ -97,6 +97,12 @@ class UploadService {
         return 'image/png';
       case '.webp':
         return 'image/webp';
+      case '.mp4':
+        return 'video/mp4';
+      case '.mov':
+        return 'video/quicktime';
+      case '.m4v':
+        return 'video/mp4';
       default:
         // Keep client aligned with backend whitelist.
         return 'application/octet-stream';
